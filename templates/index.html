@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure File Transfer | Trang chủ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3f37c9;
+            --success-color: #4cc9f0;
+            --info-color: #4895ef;
+            --dark-color: #212529;
+            --light-color: #f8f9fa;
+        }
+        
+        body {
+            background-color: #f5f7fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--dark-color);
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        }
+        
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-header {
+            border-radius: 12px 12px 0 0 !important;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn {
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+        }
+        
+        .btn-info {
+            background-color: var(--info-color);
+            border-color: var(--info-color);
+        }
+        
+        .form-control {
+            border-radius: 8px;
+            padding: 10px 15px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .form-control:focus {
+            box-shadow: 0 0 0 0.25rem rgba(67, 97, 238, 0.25);
+            border-color: var(--primary-color);
+        }
+        
+        .badge {
+            font-weight: 500;
+            padding: 6px 10px;
+            border-radius: 8px;
+        }
+        
+        .room-code {
+            font-family: 'Courier New', monospace;
+            background-color: rgba(0, 0, 0, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        
+        .page-title {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .page-title:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary-color), var(--success-color));
+            border-radius: 2px;
+        }
+        
+        .room-item {
+            transition: all 0.3s ease;
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .room-item:hover {
+            background-color: rgba(67, 97, 238, 0.05);
+        }
+        
+        /* Animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-fade {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-5">
+    <!-- Header Section -->
+    <div class="text-center mb-5 animate-fade">
+        <img src="https://via.placeholder.com/100x100/4361ee/ffffff?text=FT" alt="Logo" class="mb-3 rounded-circle shadow" width="80" height="80">
+        <h1 class="page-title mb-3 fw-bold">Secure File Transfer</h1>
+        <p class="lead text-muted">Giải pháp truyền file an toàn với mã hóa đầu cuối</p>
+    </div>
+
+    <!-- Main Content -->
+    <div class="row g-4 mb-4 animate-fade" style="animation-delay: 0.2s">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header gradient-bg text-white">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        <span>Tạo phòng mới</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="/create_room">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Tên phòng</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="bi bi-pencil-square"></i></span>
+                                <input type="text" class="form-control" name="room_name" required placeholder="Nhập tên phòng...">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Mật khẩu phòng</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
+                                <input type="password" class="form-control" name="password" required placeholder="Nhập mật khẩu...">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 py-2 mt-2">
+                            <i class="bi bi-door-open me-2"></i>Tạo phòng
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header text-white" style="background: linear-gradient(135deg, var(--success-color), var(--info-color))">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>
+                        <span>Tham gia phòng</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="/join_room">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Mã phòng</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="bi bi-hash"></i></span>
+                                <input type="text" class="form-control" name="room_id" required placeholder="Nhập mã phòng...">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Mật khẩu phòng</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light"><i class="bi bi-lock"></i></span>
+                                <input type="password" class="form-control" name="password" required placeholder="Nhập mật khẩu...">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100 py-2 mt-2">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Tham gia ngay
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Room List Section -->
+    <div class="card shadow border-0 animate-fade" style="animation-delay: 0.4s">
+        <div class="card-header d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, var(--info-color), #5a67d8)">
+            <div class="d-flex align-items-center text-white">
+                <i class="bi bi-list-ul me-2"></i>
+                <span>Danh sách phòng hiện có</span>
+            </div>
+            <a href="/key" class="btn btn-outline-light btn-sm">
+                <i class="bi bi-key me-1"></i>Quản lý Private Key
+            </a>
+        </div>
+        
+        <div class="card-body p-0">
+            <div class="list-group list-group-flush" id="room-list">
+                {% for rid, r in rooms.items() %}
+                <div class="list-group-item room-item py-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1 fw-semibold">{{ r.name }}</h6>
+                            <small class="text-muted">Tạo lúc: {{ r.created_at.strftime('%H:%M %d/%m/%Y') }}</small>
+                        </div>
+                        <div>
+                            <span class="badge bg-light text-dark">
+                                <i class="bi bi-people me-1"></i>
+                                <span id="member-count-{{ rid }}">{{ r.members|length }} thành viên</span>
+                            </span>
+                            <span class="badge bg-secondary ms-2">
+                                <i class="bi bi-hash"></i>
+                                <code class="room-code">{{ rid }}</code>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="list-group-item text-center py-4">
+                    <i class="bi bi-folder-x text-muted" style="font-size: 2rem;"></i>
+                    <p class="mt-3 mb-0 text-muted">Chưa có phòng nào được tạo</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="text-center mt-5 pt-4 animate-fade" style="animation-delay: 0.6s">
+        <p class="text-muted">© 2023 Secure File Transfer. All rights reserved.</p>
+    </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+    const socket = io();
+    
+    // Xử lý khi có phòng mới được tạo
+    socket.on('new_room', function(data) {
+        const roomList = document.getElementById('room-list');
+        const emptyRoomItem = roomList.querySelector('.list-group-item.text-center');
+        
+        if (emptyRoomItem && emptyRoomItem.textContent.includes('Chưa có phòng nào')) {
+            roomList.removeChild(emptyRoomItem);
+        }
+        
+        // Tạo HTML cho phòng mới
+        const roomItem = document.createElement('div');
+        roomItem.className = 'list-group-item room-item py-3';
+        roomItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="mb-1 fw-semibold">${data.name}</h6>
+                    <small class="text-muted">Tạo lúc: ${new Date().toLocaleTimeString()} ${new Date().toLocaleDateString()}</small>
+                </div>
+                <div>
+                    <span class="badge bg-light text-dark">
+                        <i class="bi bi-people me-1"></i>
+                        <span id="member-count-${data.room_id}">1 thành viên</span>
+                    </span>
+                    <span class="badge bg-primary ms-2">
+                        <i class="bi bi-hash"></i>
+                        <code class="room-code">${data.room_id}</code>
+                    </span>
+                </div>
+            </div>
+        `;
+        
+        // Thêm hiệu ứng fade-in
+        roomItem.style.opacity = '0';
+        roomItem.style.transform = 'translateY(20px)';
+        roomItem.style.transition = 'all 0.5s ease';
+        
+        roomList.prepend(roomItem);
+        
+        setTimeout(() => {
+            roomItem.style.opacity = '1';
+            roomItem.style.transform = 'translateY(0)';
+        }, 10);
+    });
+    
+    // Cập nhật số lượng thành viên khi có thay đổi
+    socket.on('update_members', function(data) {
+        const memberCountElement = document.getElementById(`member-count-${data.room_id}`);
+        if (memberCountElement) {
+            memberCountElement.textContent = `${data.count} thành viên`;
+        }
+    });
+</script>
+</body>
+</html>
