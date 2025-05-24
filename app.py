@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, flash, request
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
 from cryptography.hazmat.primitives import hashes, serialization
@@ -14,15 +14,42 @@ import os
 import uuid
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = 'Av4qf48x'
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 socketio = SocketIO(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 db = SQLAlchemy(app)
 
-# --- USER KEY MANAGEMENT (must be above all usages) ---
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(64), nullable=False)  # SHA256 hex
+    public_key = db.Column(db.Text, nullable=True)
+    private_key = db.Column(db.Text, nullable=True)
+
+    def set_password(self, password):
+        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+    def check_password(self, password):
+        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
+
+    def set_keys(self, private_pem, public_pem):
+        self.private_key = private_pem
+        self.public_key = public_pem
+
+    def get_private_key(self):
+        if self.private_key:
+            return serialization.load_pem_private_key(self.private_key.encode(), password=None)
+        return None
+
+    def get_public_key(self):
+        if self.public_key:
+            return serialization.load_pem_public_key(self.public_key.encode())
+        return None
+
 users = {}
+rooms = {}
 
 def get_current_user():
     if 'user_id' not in session:
@@ -65,7 +92,18 @@ def set_manual_public_key(pem_str):
     user['public_pem'] = pem_str
 
 def load_private_key():
-    user_id, user = get_current_user()
+    # Ưu tiên lấy private key từ DB nếu user đã đăng nhập
+    user_id = session.get('user_id')
+    if user_id is not None:
+        try:
+            # Nếu user_id là số (id trong DB)
+            user = db.session.get(User, user_id)
+            if user and user.private_key:
+                return serialization.load_pem_private_key(user.private_key.encode(), password=None)
+        except Exception:
+            pass
+    # Fallback: lấy từ RAM (guest)
+    _, user = get_current_user()
     return user['private_key']
 
 def load_public_key():
@@ -92,50 +130,6 @@ def generate_keys():
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     ).decode()
-
-# In-memory room storage (for demo)
-rooms = {}
-
-def get_current_user():
-    if 'user_id' not in session:
-        session['user_id'] = str(uuid.uuid4())
-    user_id = session['user_id']
-    if user_id not in users:
-        # Tạo key cho user mới
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        users[user_id] = {
-            'private_key': private_key,
-            'public_key': private_key.public_key(),
-            'public_pem': private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ).decode(),
-            'private_pem': private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ).decode()
-        }
-    return user_id, users[user_id]
-
-# Kiểm tra tính hợp lệ của file và chữ ký
-def is_valid_file_signature(file_path, signature):
-    public_key = load_public_key()
-    with open(file_path, 'rb') as f:
-        data = f.read()
-    try:
-        public_key.verify(
-            signature,
-            data,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        return True
-    except InvalidSignature:
-        return False
 
 # Hàm lưu chữ ký vào file
 def save_signature_to_file(signature, sig_path):
@@ -199,7 +193,17 @@ def handle_file_upload(file, room_id):
     save_signature_to_file(signature, sig_path)
     file_size = os.path.getsize(file_path)
     uploaded_at = datetime.now()
-    return {'filename': filename, 'path': file_path, 'sig': sig_path, 'size': file_size, 'uploaded_at': uploaded_at}
+    # Lấy username uploader
+    uploader = None
+    if 'user_id' in session:
+        user = None
+        try:
+            user = db.session.get(User, session['user_id'])
+        except Exception:
+            user = User.query.get(session['user_id'])
+        if user:
+            uploader = user.username
+    return {'filename': filename, 'path': file_path, 'sig': sig_path, 'size': file_size, 'uploaded_at': uploaded_at, 'uploader': uploader}
 
 # Hàm xử lý khi người dùng tạo room mới
 def handle_create_room(room_name, password):
@@ -245,81 +249,23 @@ def create_room_and_emit_event(room_name, password):
     })
     return room_id
 
-# Hàm xử lý khi người dùng tải file lên
-def handle_file_upload(file, room_id):
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], room_id + '_' + filename)
-    file.save(file_path)
-    signature = sign_file(file_path)
-    sig_path = file_path + '.sig'
-    save_signature_to_file(signature, sig_path)
-    file_size = os.path.getsize(file_path)
-    uploaded_at = datetime.now()
-    return {'filename': filename, 'path': file_path, 'sig': sig_path, 'size': file_size, 'uploaded_at': uploaded_at}
-
 # Hàm phát sự kiện có file mới tới tất cả client trong room
-def emit_new_file_event(room_id, filename, file_size):
+def emit_new_file_event(room_id, filename, file_size, uploader=None):
     emit_event_to_room(room_id, 'new_file', {
         'room_id': room_id,
         'filename': filename,
-        'size': file_size
+        'size': file_size,
+        'uploader': uploader
     })
 
-# Hàm xác minh chữ ký số
-def verify_digital_signature(file_path, signature):
-    public_key = load_public_key()
-    with open(file_path, 'rb') as f:
-        data = f.read()
-    try:
-        public_key.verify(
-            signature,
-            data,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        return True
-    except InvalidSignature:
-        return False
-
-# Hàm xử lý khi người dùng xác minh file
-def handle_file_verification(room_id, filename):
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], room_id + '_' + filename)
-    sig_path = file_path + '.sig'
-    if not os.path.exists(file_path) or not os.path.exists(sig_path):
-        return False, 'File hoặc chữ ký không tồn tại!'
-    with open(sig_path, 'rb') as f:
-        signature = f.read()
-    valid = verify_digital_signature(file_path, signature)
-    return valid, None
-
-# Hàm tạo khóa mới cho người dùng
-def create_new_keys_for_user():
-    user_id, user = get_current_user()
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
-    user['private_key'] = private_key
-    user['public_key'] = private_key.public_key()
-    user['private_pem'] = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode()
-    user['public_pem'] = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode()
-
+# --- Hàm ký số: ký hash SHA256 của file ---
 def sign_file(filepath):
     private_key = load_private_key()
     with open(filepath, 'rb') as f:
         data = f.read()
+    digest = hashlib.sha256(data).digest()
     signature = private_key.sign(
-        data,
+        digest,
         padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),
             salt_length=padding.PSS.MAX_LENGTH
@@ -328,14 +274,15 @@ def sign_file(filepath):
     )
     return signature
 
-def verify_signature(filepath, signature):
-    public_key = load_public_key()
+# --- Hàm xác minh chữ ký: xác minh hash SHA256 của file ---
+def verify_signature(filepath, signature, public_key):
     with open(filepath, 'rb') as f:
         data = f.read()
+    digest = hashlib.sha256(data).digest()
     try:
         public_key.verify(
             signature,
-            data,
+            digest,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
                 salt_length=padding.PSS.MAX_LENGTH
@@ -345,33 +292,6 @@ def verify_signature(filepath, signature):
         return True
     except InvalidSignature:
         return False
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(64), nullable=False)  # SHA256 hex
-    public_key = db.Column(db.Text, nullable=True)
-    private_key = db.Column(db.Text, nullable=True)
-
-    def set_password(self, password):
-        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-    def check_password(self, password):
-        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
-
-    def set_keys(self, private_pem, public_pem):
-        self.private_key = private_pem
-        self.public_key = public_pem
-
-    def get_private_key(self):
-        if self.private_key:
-            return serialization.load_pem_private_key(self.private_key.encode(), password=None)
-        return None
-
-    def get_public_key(self):
-        if self.public_key:
-            return serialization.load_pem_public_key(self.public_key.encode())
-        return None
 
 # --- ROUTES ---
 
@@ -439,7 +359,7 @@ def create_room():
     return redirect(url_for('room', room_id=room_id))
 
 @app.route('/join_room', methods=['POST'])
-def join_room():
+def join_room_route():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     room_id = request.form['room_id']
@@ -457,10 +377,20 @@ def room(room_id):
         return redirect(url_for('login'))
     room = rooms.get(room_id)
     if not room:
-        flash('Phòng không tồn tại!')
         return redirect(url_for('index'))
+    user = None
+    try:
+        user = db.session.get(User, session['user_id'])
+    except Exception:
+        user = User.query.get(session['user_id'])
+    username = user.username if user else str(session['user_id'])
+    if username not in room['members']:
+        room['members'].append(username)
+        socketio.emit('update_members', {'room_id': room_id, 'count': len(room['members'])}, room=room_id)
     files = get_files_in_room(room)
-    return render_template('room.html', room=room, room_id=room_id, files=files)
+    user_objs = User.query.all()
+    users_dict = {u.username: {'username': u.username, 'public_key': u.public_key} for u in user_objs}
+    return render_template('room.html', room=room, room_id=room_id, files=files, users=users_dict)
 
 @app.route('/upload/<room_id>', methods=['POST'])
 def upload(room_id):
@@ -477,9 +407,14 @@ def upload(room_id):
     if file.filename == '':
         flash('Chưa chọn file!')
         return redirect(url_for('room', room_id=room_id))
+    
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+        
     file_info = handle_file_upload(file, room_id)
     update_room_info(room_id, file_info)
-    emit_new_file_event(room_id, file_info['filename'], file_info['size'])
+    
+    emit_new_file_event(room_id, file_info['filename'], file_info['size'], file_info.get('uploader'))
     flash('Tải file thành công!')
     return redirect(url_for('room', room_id=room_id))
 
@@ -523,67 +458,12 @@ def verify(room_id, filename):
         return redirect(url_for('room', room_id=room_id))
     with open(sig_path, 'rb') as f:
         signature = f.read()
-    with open(file_path, 'rb') as f:
-        data = f.read()
-    try:
-        public_key.verify(
-            signature,
-            data,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        flash('Chữ ký hợp lệ!')
-    except InvalidSignature:
-        flash('Chữ ký không hợp lệ!')
+    valid = verify_signature(file_path, signature, public_key)
+    if valid:
+        flash('Chữ ký hợp lệ! File toàn vẹn và đúng nguồn gửi.')
+    else:
+        flash('Chữ ký không hợp lệ hoặc file đã bị thay đổi!')
     return redirect(url_for('room', room_id=room_id))
-
-@app.route('/key', methods=['GET', 'POST'])
-def key():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
-    msg = None
-    if request.method == 'POST':
-        if 'private_pem' in request.form and request.form['private_pem']:
-            private_pem = request.form['private_pem']
-            try:
-                private_key = serialization.load_pem_private_key(private_pem.encode(), password=None)
-                public_pem = private_key.public_key().public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                ).decode()
-                user.set_keys(private_pem, public_pem)
-                db.session.commit()
-                msg = 'Cập nhật private key thành công!'
-            except Exception:
-                msg = 'Private key không hợp lệ!'
-        elif 'public_pem' in request.form and request.form['public_pem']:
-            public_pem = request.form['public_pem']
-            try:
-                serialization.load_pem_public_key(public_pem.encode())
-                user.public_key = public_pem
-                db.session.commit()
-                msg = 'Cập nhật public key thành công!'
-            except Exception:
-                msg = 'Public key không hợp lệ!'
-        elif 'random' in request.form:
-            private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            private_pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ).decode()
-            public_pem = private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ).decode()
-            user.set_keys(private_pem, public_pem)
-            db.session.commit()
-            msg = 'Đã tạo key mới!'
-    return render_template('key.html', username=user.username, current_key=user.private_key, current_public=user.public_key, msg=msg)
 
 @app.route('/change_key', methods=['POST'])
 def change_key():
@@ -605,7 +485,42 @@ def change_key():
     flash('Đã tạo key mới!')
     return redirect(url_for('key'))
 
+@socketio.on('join')
+def on_join(data):
+    room_id = data.get('room_id')
+    if room_id:
+        join_room(room_id)
+        # Tăng số lượng thành viên khi join qua socket (nếu cần)
+        room = rooms.get(room_id)
+        if room:
+            user = None
+            try:
+                user = db.session.get(User, session['user_id'])
+            except Exception:
+                user = User.query.get(session['user_id'])
+            username = user.username if user else str(session['user_id'])
+            if username not in room['members']:
+                room['members'].append(username)
+            socketio.emit('update_members', {'room_id': room_id, 'count': len(room['members'])}, room=room_id)
+
+@socketio.on('leave')
+def on_leave(data):
+    room_id = data.get('room_id')
+    if room_id:
+        leave_room(room_id)
+        room = rooms.get(room_id)
+        if room:
+            user = None
+            try:
+                user = db.session.get(User, session['user_id'])
+            except Exception:
+                user = User.query.get(session['user_id'])
+            username = user.username if user else str(session['user_id'])
+            if username in room['members']:
+                room['members'].remove(username)
+            socketio.emit('update_members', {'room_id': room_id, 'count': len(room['members'])}, room=room_id)
+
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()  # Tạo bảng trước khi chạy app
+        db.create_all()
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
